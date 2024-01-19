@@ -9,7 +9,9 @@
 declare -A data
 declare -A output
 
+IFS=$' \t'
 while IFS= read -r line; do
+    line=$(echo "$line" | awk '{$1=$1};1')
     key=$(echo $line | awk '{print $1}' | sed 's/"//g')
     var=${line#* }
     value=$(echo $var | tr -d ' ')
