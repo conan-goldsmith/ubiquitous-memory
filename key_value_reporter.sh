@@ -6,8 +6,16 @@
 ## kafka-console-consumer --bootstrap-server broker:9092 -topic connect-configs --from-beginning --property print.key=true
 ## Created by Conan Goldsmith, Last revised Jan 19th 2024
 
+
+## TODO Add a flag to allow for showing the sequential order
 declare -A data
 declare -A output
+TEMPFILE=/tmp/$$.tmp
+echo 0 > $TEMPFILE
+
+echo "===================================================="
+echo "Output from this script groups events by the connector name."$'\n'"The output reports the order the events occur in the source topic with the Event # prefix."
+echo "===================================================="
 
 IFS=$' \t'
 while IFS= read -r line; do
@@ -19,15 +27,19 @@ while IFS= read -r line; do
     ignored_keys=("task-", "session-key", "commit-", "target-state-")
 
     for ik in "${ignored_keys[@]}"; do
-        if [[ $key =~ $ik* || $key == $ik ]]; then
+        if [[ $key =~ $ik* || $key == "session-key" ]]; then
             continue 2  # skip this iteration if any ignored_key is a prefix of the key
         fi
     done
 
+    COUNTER=$[$(cat $TEMPFILE) + 1]
+    echo $COUNTER > $TEMPFILE
+
+
     # Parse JSON value into an associative array
     declare -A value_dict
     if [[ "$value" == "null" ]]; then
-        output[$key]+=$'\n'"Connector \e[31m$key\e[0m deleted"$'\n'
+        output[$key]+=$'\n'"Event $COUNTER: Connector \e[31m$key\e[0m deleted"$'\n'
 	data_dict=()
         continue
     else
@@ -43,10 +55,10 @@ while IFS= read -r line; do
     if [[ ${output[$key]+_} ]]; then
         # Duplicate key found
         if [[ "$prev_value" == "null" ]]; then
-            output[$key]+=$'\n'"Connector \e[31m$key\e[0m deleted"$'\n'
+            output[$key]+=$'\n'"Event $COUNTER: Connector \e[31m$key\e[0m deleted"$'\n'
 	else
             # Compare values
-            output[$key]+=$'\n'"Connector \e[32m$key\e[0m updated"$'\n'
+            output[$key]+=$'\n'"Event $COUNTER: Connector \e[32m$key\e[0m updated"$'\n'
             for k in "${!value_dict[@]}"; do
                 if [[ "${value_dict[$k]}" == "" || "${value_dict[$k]}" != "${value_dict[$k-1]}" ]]; then
                     if [[ "${value_dict[$k]}" == "" ]]; then
@@ -76,15 +88,17 @@ while IFS= read -r line; do
     else
         # New key
         if [[ "$value" == "null" ]]; then
-            output[$key]=$'\n'"Connector \e[31m$key\e[0m deleted"$'\n'
+            output[$key]=$'\n'"Event $COUNTER: Connector \e[31m$key\e[0m deleted"$'\n'
         else
-            output[$key]=$'\n'"Connector \e[32m$key\e[0m created"$'\n'
+            output[$key]=$'\n'"Event $COUNTER: Connector \e[32m$key\e[0m created"$'\n'
             for k in "${!value_dict[@]}"; do
                 output[$key]+="${value_dict[$k]}"$'\n'
             done
         fi
     fi
 done < "$1"
+
+unlink $TEMPFILE
 
 # Output all changes grouped by key
 for key in "${!output[@]}"; do
